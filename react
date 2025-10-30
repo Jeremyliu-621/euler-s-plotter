@@ -1,0 +1,312 @@
+import React, { useState, useEffect } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Calculator, Info } from 'lucide-react';
+
+const EulerMethodVisualizer = () => {
+  const [fExpr, setFExpr] = useState('-2*y + t');
+  const [gExpr, setGExpr] = useState('t - 0.5 + 0.5*Math.exp(-2*t)');
+  const [dt, setDt] = useState('0.1');
+  const [t0, setT0] = useState('0');
+  const [tEnd, setTEnd] = useState('5');
+  const [y0, setY0] = useState('1');
+  const [chartData, setChartData] = useState([]);
+  const [error, setError] = useState('');
+  const [showHelp, setShowHelp] = useState(false);
+
+  const safeEval = (expr, vars) => {
+    const mathFuncs = {
+      sin: Math.sin,
+      cos: Math.cos,
+      tan: Math.tan,
+      exp: Math.exp,
+      log: Math.log,
+      sqrt: Math.sqrt,
+      abs: Math.abs,
+      max: Math.max,
+      min: Math.min,
+      pi: Math.PI,
+      e: Math.E,
+      PI: Math.PI,
+      E: Math.E
+    };
+    
+    const context = { ...mathFuncs, ...vars, Math };
+    const func = new Function(...Object.keys(context), `return ${expr}`);
+    return func(...Object.values(context));
+  };
+
+  const buildDerivativeFunc = (expr) => {
+    return (y, t) => {
+      try {
+        return safeEval(expr, { y, t });
+      } catch (e) {
+        throw new Error(`Error in f(y,t): ${e.message}`);
+      }
+    };
+  };
+
+  const buildExactFunc = (expr) => {
+    return (t) => {
+      try {
+        return safeEval(expr, { t });
+      } catch (e) {
+        throw new Error(`Error in g(t): ${e.message}`);
+      }
+    };
+  };
+
+  const eulerMethod = (f, t0Val, y0Val, tEndVal, dtVal) => {
+    const numSteps = Math.floor((tEndVal - t0Val) / dtVal);
+    const T = [];
+    const Y = [];
+
+    T[0] = t0Val;
+    Y[0] = y0Val;
+
+    for (let i = 0; i < numSteps; i++) {
+      const t = T[i];
+      const y = Y[i];
+      const slope = f(y, t);
+      Y[i + 1] = y + dtVal * slope;
+      T[i + 1] = t + dtVal;
+    }
+
+    return { T, Y };
+  };
+
+  const calculate = () => {
+    setError('');
+    
+    try {
+      const dtVal = parseFloat(dt);
+      const t0Val = parseFloat(t0);
+      const tEndVal = parseFloat(tEnd);
+      const y0Val = parseFloat(y0);
+
+      if (isNaN(dtVal) || isNaN(t0Val) || isNaN(tEndVal) || isNaN(y0Val)) {
+        setError('Please enter valid numbers for all fields');
+        return;
+      }
+
+      if (dtVal <= 0) {
+        setError('Step size Δt must be positive');
+        return;
+      }
+
+      if (tEndVal <= t0Val) {
+        setError('End time must be greater than start time');
+        return;
+      }
+
+      const f = buildDerivativeFunc(fExpr);
+      const g = buildExactFunc(gExpr);
+
+      const { T, Y } = eulerMethod(f, t0Val, y0Val, tEndVal, dtVal);
+
+      const numSmooth = 500;
+      const tSmooth = [];
+      for (let i = 0; i <= numSmooth; i++) {
+        tSmooth.push(t0Val + (tEndVal - t0Val) * i / numSmooth);
+      }
+
+      const data = tSmooth.map((t, i) => {
+        const exactVal = g(t);
+        const eulerIdx = T.findIndex(te => te >= t);
+        const eulerVal = eulerIdx >= 0 ? Y[eulerIdx] : null;
+        
+        return {
+          t: parseFloat(t.toFixed(4)),
+          exact: parseFloat(exactVal.toFixed(6)),
+          euler: eulerVal !== null ? parseFloat(eulerVal.toFixed(6)) : null
+        };
+      });
+
+      T.forEach((t, i) => {
+        if (!data.find(d => Math.abs(d.t - t) < 0.0001)) {
+          data.push({
+            t: parseFloat(t.toFixed(4)),
+            exact: parseFloat(g(t).toFixed(6)),
+            euler: parseFloat(Y[i].toFixed(6))
+          });
+        }
+      });
+
+      data.sort((a, b) => a.t - b.t);
+      setChartData(data);
+
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  useEffect(() => {
+    calculate();
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+      <div className="max-w-6xl mx-auto">
+        <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <Calculator className="w-8 h-8 text-indigo-600" />
+              <h1 className="text-3xl font-bold text-gray-800">Euler's Method Visualizer</h1>
+            </div>
+            <button
+              onClick={() => setShowHelp(!showHelp)}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <Info className="w-6 h-6 text-gray-600" />
+            </button>
+          </div>
+
+          {showHelp && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-gray-700">
+              <h3 className="font-semibold mb-2">Help:</h3>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Use <code className="bg-white px-1 rounded">y</code> and <code className="bg-white px-1 rounded">t</code> in f(y,t)</li>
+                <li>Use <code className="bg-white px-1 rounded">t</code> in g(t)</li>
+                <li>Available functions: sin, cos, tan, exp, log, sqrt, abs</li>
+                <li>Constants: pi, e (or Math.PI, Math.E)</li>
+                <li>Example: <code className="bg-white px-1 rounded">-2*y + t</code> or <code className="bg-white px-1 rounded">Math.sin(t) - y</code></li>
+              </ul>
+            </div>
+          )}
+
+          <div className="grid md:grid-cols-2 gap-6 mb-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Derivative f(y, t)
+              </label>
+              <input
+                type="text"
+                value={fExpr}
+                onChange={(e) => setFExpr(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                placeholder="-2*y + t"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Exact Solution g(t)
+              </label>
+              <input
+                type="text"
+                value={gExpr}
+                onChange={(e) => setGExpr(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                placeholder="t - 0.5 + 0.5*Math.exp(-2*t)"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Step Size Δt
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={dt}
+                onChange={(e) => setDt(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Start Time t₀
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                value={t0}
+                onChange={(e) => setT0(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                End Time t_end
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                value={tEnd}
+                onChange={(e) => setTEnd(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Initial Value y₀
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                value={y0}
+                onChange={(e) => setY0(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={calculate}
+            className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition-colors shadow-md"
+          >
+            Calculate & Plot
+          </button>
+
+          {error && (
+            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+
+        {chartData.length > 0 && !error && (
+          <div className="bg-white rounded-xl shadow-lg p-8">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Results</h2>
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="t" 
+                  label={{ value: 't', position: 'insideBottom', offset: -5 }}
+                />
+                <YAxis 
+                  label={{ value: 'y', angle: -90, position: 'insideLeft' }}
+                />
+                <Tooltip />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="exact" 
+                  stroke="#10b981" 
+                  strokeWidth={2}
+                  name="Exact Solution"
+                  dot={false}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="euler" 
+                  stroke="#3b82f6" 
+                  strokeWidth={2}
+                  name="Euler Approximation"
+                  dot={{ fill: '#3b82f6', r: 3 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default EulerMethodVisualizer;
